@@ -87,3 +87,37 @@ Security notes
 Do not commit *.tfstate* or .terraform/.
 Keep backend bucket private and encrypted.
 Do not place plaintext secrets in Terraform variables.
+## CI/CD (GitHub Actions)
+`.github/workflows/terraform.yml` runs on every PR and push to `main`:
+- **PR** → `fmt -check`, `validate`, `plan`; the plan is posted as a PR comment.
+- **Push to `main`** (or manual run) → plan, then `apply` in the `production` environment.
+
+CI authenticates to AWS via GitHub OIDC (no long-lived keys) and passes `-var aws_profile=` so the local `admin` profile is ignored.
+
+### One-time setup
+1. Create the GitHub OIDC provider in AWS (skip if it already exists):
+   ```bash
+   aws iam create-open-id-connect-provider \
+     --url https://token.actions.githubusercontent.com \
+     --client-id-list sts.amazonaws.com
+   ```
+2. Create an IAM role (e.g. `github-actions-single-env`) with this trust policy, and attach permissions for EC2, security groups, and the S3 state bucket:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Principal": { "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com" },
+       "Action": "sts:AssumeRoleWithWebIdentity",
+       "Condition": {
+         "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+         "StringLike": { "token.actions.githubusercontent.com:sub": "repo:lbarb06/single-env:*" }
+       }
+     }]
+   }
+   ```
+3. Add the role ARN as a repo secret:
+   ```bash
+   gh secret set AWS_ROLE_ARN -R lbarb06/single-env --body arn:aws:iam::<ACCOUNT_ID>:role/github-actions-single-env
+   ```
+4. (Optional) In repo Settings → Environments → `production`, add required reviewers to gate applies.
