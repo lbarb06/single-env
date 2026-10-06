@@ -10,6 +10,7 @@ terraform {
 }
 
 provider "aws" {
-  region  = var.aws_region
-  profile = var.aws_profile
+  region = var.aws_region
+  # Local runs use a named profile; CI sets aws_profile="" and uses OIDC credentials
+  profile = var.aws_profile != "" ? var.aws_profile : null
 }
